@@ -1,0 +1,4 @@
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.15
+PyQt5_sip==12.15.0
+subprocess.run==0.0.8
