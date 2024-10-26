@@ -44,5 +44,8 @@ Pobierz repozytorium kodu na systemie Linux. Aby poprawnie zainstalować wszystk
       ```cmd
         pip install -r requirements.txt
       ```
+---
+
+
 
 
