@@ -17,7 +17,18 @@ def raport_message(message):
         log_file.write(f"{message}\n")
     print(message)
 
-
+def hash_file(mount_point):
+    hash_obj = hashlib.sha256()
+    output_file = f"{mount_point}_sha256.txt"
+    file_path = f"/dev/{mount_point}"
+    try:
+        #wywoluje komende ktora tworzy hash i zapisuje do pliku
+        f = open(output_file , "w")
+        result = subprocess.run(["sudo","sha256sum", file_path], stdout=f)
+        log_message(f" generowanie sumy kontrolnej przebieglo pomyslnie") 
+    except IOError as e:
+        log_message(f"Błąd podczas generowania sumy kontrolnej z pliku {e}") 
+         
 def document_vm_configuration():
     
     """Zapisuje informacje o konfiguracji maszyny wirtualnej do pliku"""
@@ -38,98 +49,119 @@ def document_vm_configuration():
     except Exception as e:
         log_message(f"Błąd podczas dokumentacji konfiguracji: {e}")
 
+def detect_name_drive():
+    """Automatycznie wykrywa nowe nośniki i montuje je w trybie read-only"""
+    # Wykrywanie podłączonych urządzeń
+    try:
+        result = subprocess.run(["lsblk", "-r", "-o", "NAME"], capture_output=True, text=True)
+        drives = result.stdout.strip().split("\n")
+        loop_elements = [item for item in drives if re.match(r"loop\d+$", item)]
+        recent = loop_elements[-1]
+        return recent
+    except Exception as e:
+        log_message(f"Błąd podczas szukania urzadzenia: {e}")
+      
 def detect_and_mount_drive():
     """Automatycznie wykrywa nowe nośniki i montuje je w trybie read-only"""
-    try:
         # Wykrywanie podłączonych urządzeń
-        result = subprocess.check_output("lsblk -r -o NAME,MOUNTPOINT,TYPE", shell=True).decode()
-        lines = result.strip().split("\n")
-        drives = [line.split()[0] for line in lines if 'disk' in line and not any(m in line for m in ['/mnt', '/media'])]
-
-        if not drives:
-            log_message("Nie znaleziono nowych nośników.")
-            return None
-
+    result = subprocess.run(["lsblk", "-r", "-o", "NAME"], capture_output=True, text=True)
+    drives = result.stdout.strip().split("\n")
+    print("Prosze podlaczyc nosnik danych...")
+    new_device = None
+    start_time = time.time()
+    timeout = 60
+    while True:
+        result = subprocess.run(["lsblk", "-r", "-o", "NAME"],capture_output=True, text=True)
+        drives_new = result.stdout.strip().split("\n")
+        if time.time() - start_time > timeout:
+             print("Blad, nie wykryto nowego urzadzenia")
+             break
+        added_device = [dev for dev in drives_new if dev not in drives]
+        if added_device:
+             new_device = added_device[0]
+             print("nowe urzadzenie zostalo podlaczone:", new_device)
+             return new_device
         # Zakładamy, że pierwszy znaleziony napęd jest tym, który należy zamontować
-        drive = drives[0]
-        mount_point = f"/mnt/{drive}"
-
-        # Montowanie w trybie read-only
-        os.makedirs(mount_point, exist_ok=True)
-        subprocess.run(f"sudo mount -o ro /dev/{drive} {mount_point}", shell=True, check=True)
-        log_message(f"Nośnik /dev/{drive} został zamontowany w {mount_point}.")
-    except Exception as e:
-        log_message(f"Błąd podczas wykrywania i montowania nośnika: {e}")
-        return None
-
+               
 def create_checksum_and_image(mount_point):
     """Tworzy sumę kontrolną oraz kopię obrazu nośnika"""
     try:
         image_path = f"{mount_point.replace('/mnt/', '')}_backup.img"
+        mount_point_path = f"/dev/{mount_point}"
         checksum_path = f"{image_path}.sha256"
+        checksum_mount_path = f"{mount_point}.sha256"
 
         # Tworzenie obrazu za pomocą dd
         log_message(f"Rozpoczęto tworzenie obrazu {image_path}...")
-        subprocess.run(f"sudo dd if={mount_point} of={image_path} bs=4M status=progress", shell=True, check=True)
+        subprocess.run([f"sudo", "dd", f"if=/dev/{mount_point}", f"of={image_path}", "bs=4M", "status=progress"],check=True)
         log_message(f"Obraz nośnika zapisany jako {image_path}.")
-
-        # Tworzenie sumy kontrolnej
-        log_message(f"Tworzenie sumy kontrolnej dla {image_path}...")
-        sha256_hash = hashlib.sha256()
-        with open(image_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        with open(checksum_path, "w") as f:
-            f.write(sha256_hash.hexdigest())
-        
-        log_message(f"Suma kontrolna zapisana w pliku {checksum_path}.")
+        hash_file(mount_point)
+        subprocess.run(['sudo','umount',f"/dev/{mount_point}"], check=True)
+        print("mozesz wysunac nosnik danych")
     except Exception as e:
-        log_message(f"Błąd podczas tworzenia obrazu lub sumy kontrolnej: {e}")
+        log_message(f"Błąd podczas tworzenia obrazu: {e}")
+        
+        
+def mount_from_img(mount_point):
+    try: 
+        image_path = f"{mount_point.replace('/mnt/', '')}_backup.img"
+        log_message(f"Rozpoczęto montowanie obrazu {image_path}...")
+        if not os.path.exists(f"/media/{mount_point}_backup"):
+            subprocess.run(["sudo","mkdir", f"/media/{mount_point}_backup" ],text=True ,check=True)
+        losetup_result = subprocess.run(['sudo','losetup', '--show', '-f', f"{mount_point}_backup.img"], capture_output=True, text=True ,check=True)
+        loop_device = losetup_result.stdout.strip()
+        subprocess.run(['sudo','mount',loop_device, f"/media/{mount_point}_backup"], check=True)
+        log_message(f"Obraz nośnika poprawnie zamontowany.")
+        check_hash(detect_name_drive())
+    except Exception as e:
+        log_message(f"Błąd podczas montowania obrazu {e}") 
 
 def check_partition(mount_point): #gdzie mount_point /dev/NAME
     """Analizuje strukturę partycji za pomocą fdisk i mmls."""
-    
+    print("analizuje strukture partycji")
     # Sprawdzanie struktury partycji za pomocą `fdisk`
-    fdisk_output = subprocess.run(["sudo","fdisk", "-l", mount_point], capture_output=True, text=True)
+    path_to_mount = "/dev/"+mount_point
+    fdisk_output = subprocess.run(["sudo","fdisk", "-l", path_to_mount], capture_output=True, text=True)
     if fdisk_output.returncode == 0:
         for line in fdisk_output.stdout.splitlines():
+            print(line)
             if "Units:" in line:  # Filtrujemy tylko linie dotyczące partycji
                 match = re.search(r'(\d+)$', line)
                 if match:
                     offset = match.group(1)  # Pobieramy znalezioną liczbę
         log_message(f"\nStruktura partycji przy użyciu fdisk zapisana do pliku raportu.")
-        raport_message(f"\nStruktura partycji przy użyciu fdisk:")
-        raport_message(fdisk_output.stdout)
+        #print(fdisk_output)
+        raport_message(f"\nStruktura partycji przy użyciu fdisk ", fdisk_output.stdout)
         
     else:
         print(f"Błąd fdisk: {fdisk_output.stderr}")
         log_message(f"Błąd fdisk: {fdisk_output.stderr}")
-    return offset
+
+
 
 def file_analysis(mount_point):
     """Analizuje metadane plików za pomocą fls i istat."""
     # Użycie `fls` do wylistowania plików na pierwszej partycji
-    try:
-        fls_output = subprocess.run(["sudo","fls", mount_point])  #gdzie mount_point /dev/NAME
+    path_to_mount = "/dev/"+mount_point
+    fls_output = subprocess.run(["sudo","fls", path_to_mount], capture_output=True, text=True)  #gdzie mount_point /dev/NAME
+	
+    if fls_output.returncode == 0:
+        raport_message(f"\nWylistowanie plików przy użyciu fls:")
+        raport_message(fls_output.stdout)
+        log_message(f"\nWylistowanie plików przy użyciu fls zapisana do pliku raportu.")	
+        inode_ids = re.findall(r'\b\d{2,6}\b', fls_output.stdout)  # Pobranie numerów inode
+        for inode in inode_ids:
+            print(f"\nMetadane pliku o inode {inode}:")
+            istat_output = subprocess.run(["sudo","istat", path_to_mount, inode], capture_output=True, text=True)
+            print(istat_output.stdout)
+            raport_message(istat_output.stdout)
+            return 1
+    else:
+        print(f"Błąd fdisk: {fls_output.stderr}")
+        log_message(f"Błąd fdisk: {fls_output.stderr}")
+        return 0
+
         
-        if fls_output.returncode == 0:
-            raport_message(f"\nWylistowanie plików przy użyciu fls:")
-            raport_message(fls_output.stdout)
-            log_message(f"\nWylistowanie plików przy użyciu fls zapisana do pliku raportu.")
-            
-            inode_ids = re.findall(r"\* (\d+):", fls_output)  # Pobranie numerów inode
-            for inode in inode_ids:
-                print(f"\nMetadane pliku o inode {inode}:")
-                istat_output = subprocess.run(["sudo","istat", mount_point, inode])
-                print(istat_output)
-        else:
-            print(f"Błąd fdisk: {fls_output.stderr}")
-            log_message(f"Błąd fdisk: {fls_output.stderr}")
-    except Exception as e:
-        log_message(f"Błąd podczas wykrywania i montowania nośnika: {e}")
-        return None
-
-
 def main():
     """Główna funkcja kontrolująca działanie skryptu"""
     log_message("=== Rozpoczęcie pracy skryptu ===")
@@ -144,11 +176,16 @@ def main():
             # Krok 3: Tworzenie obrazu i sumy kontrolnej
             create_checksum_and_image(mount_point)
             
+            #Odmontowanie realnego nosika
+            
+            #zapontowanie nowego nosnika z obrazu 
+            
             # Krok 4: Badanie struktury partycji obrazu 
             check_partition(mount_point)
             
             # Ktok 5: Analiza plików
-            file_analysis(mount_point)
+            if file_analysis(mount_point) == 1:
+                break
 
             # Odmontowanie nośnika po zakończeniu pracy
             subprocess.run(f"sudo umount {mount_point}", shell=True)
@@ -158,4 +195,3 @@ def main():
         time.sleep(60)
 
 if __name__ == "__main__":
-    main()
