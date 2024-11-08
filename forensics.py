@@ -112,7 +112,7 @@ def mount_from_img(mount_point):
         loop_device = losetup_result.stdout.strip()
         subprocess.run(['sudo','mount',loop_device, f"/media/{mount_point}_backup"], check=True)
         log_message(f"Obraz nośnika poprawnie zamontowany.")
-        check_hash(detect_name_drive())
+        hash_file(detect_name_drive())
     except Exception as e:
         log_message(f"Błąd podczas montowania obrazu {e}") 
 
@@ -124,14 +124,14 @@ def check_partition(mount_point): #gdzie mount_point /dev/NAME
     fdisk_output = subprocess.run(["sudo","fdisk", "-l", path_to_mount], capture_output=True, text=True)
     if fdisk_output.returncode == 0:
         for line in fdisk_output.stdout.splitlines():
-            print(line)
+            #print(line)
             if "Units:" in line:  # Filtrujemy tylko linie dotyczące partycji
                 match = re.search(r'(\d+)$', line)
                 if match:
                     offset = match.group(1)  # Pobieramy znalezioną liczbę
         log_message(f"\nStruktura partycji przy użyciu fdisk zapisana do pliku raportu.")
         #print(fdisk_output)
-        raport_message(f"\nStruktura partycji przy użyciu fdisk ", fdisk_output.stdout)
+        raport_message(f"\nStruktura partycji przy użyciu fdisk {fdisk_output.stdout}")
         
     else:
         print(f"Błąd fdisk: {fdisk_output.stderr}")
@@ -176,15 +176,16 @@ def main():
             # Krok 3: Tworzenie obrazu i sumy kontrolnej
             create_checksum_and_image(mount_point)
             
-            #Odmontowanie realnego nosika
-            
             #zapontowanie nowego nosnika z obrazu 
+            mount_from_img(mount_point)
+            
+            new_drive = detect_name_drive()
             
             # Krok 4: Badanie struktury partycji obrazu 
-            check_partition(mount_point)
+            check_partition(new_drive)
             
             # Ktok 5: Analiza plików
-            if file_analysis(mount_point) == 1:
+            if file_analysis(new_drive) == 1:
                 break
 
             # Odmontowanie nośnika po zakończeniu pracy
@@ -195,3 +196,4 @@ def main():
         time.sleep(60)
 
 if __name__ == "__main__":
+    main()
