@@ -262,6 +262,11 @@ def main():
         
         # Odczekaj przed kolejną iteracją (np. 60 sekund)
         time.sleep(60)
+################################### NIE SPRAWDZIŁEM JESZCZE TEGO CZY SUMY KONTROLNE SA ZAPISYWANE PO UKONCZENIU PROCESU ZAUTOMATYZOWANEJ ANALIZY, POWINNY BYĆ W SUMIE CZTERY SUMY KONTROLNE, DWIE OBRAZU ORYGINALU, DWIE KOPII
+################################### JEDNA (ORYGINALU) PRZED ZAMONTOWANIEM
+################################### DRUGA (ORYGINAŁu) PO STWORZENIU KOPII 
+################################### TRZECIA (KOPII) PRZED ODMONTOWANIEJ ORYGINAŁU
+################################### CZWARTA (KOPII) PO ZAKOŃCZENIU ANALIZY
 
 if __name__ == "__main__":
     main()
