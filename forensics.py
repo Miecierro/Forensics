@@ -293,6 +293,10 @@ def main():
             subprocess.run(f"sudo umount {ext_drive}", shell=True)
             log_message(f"Nośnik {ext_drive} został odmontowany.")
 
+            """Obliczenie hasha po odmontowaniu"""
+            hash_file_copy(ext_drive)
+            log_message(f" Generowanie sumy kontrolnej po odmontowaniu obrazu")
+
         # Odczekaj przed kolejną iteracją (np. 60 sekund)
         time.sleep(60)
 
